@@ -61,6 +61,7 @@ class iPlannerNode:
         
         rospy.Subscriber(self.depth_topic, Image, self.imageCallback)
         rospy.Subscriber(self.goal_topic, PointStamped, self.goalCallback)
+        rospy.Subscriber(self.goal_orin_topic, PoseStamped, self.goalOrinCallback)
         rospy.Subscriber("/joy", Joy, self.joyCallback, queue_size=10)
 
         status_topic = '/iplanner_status'
@@ -79,6 +80,7 @@ class iPlannerNode:
         self.main_freq   = args.main_freq
         self.depth_topic = args.depth_topic
         self.goal_topic  = args.goal_topic
+        self.goal_orin_topic = args.goal_orin_topic
         self.path_topic  = args.path_topic
         self.image_topic = args.image_topic
         self.camera_tilt = args.camera_tilt
@@ -209,12 +211,27 @@ class iPlannerNode:
         self.is_smartjoy = False
         self.is_goal_init = True
         self.is_goal_processed = False
+        self.is_oriented = False
         # reset fear reaction
         self.fear_buffter = 0
         self.is_fear_reaction = False
         # reste planner status
         self.planner_status.data = 0
         return
+    
+    def goalOrinCallback(self, msg):
+        rospy.loginfo("Recevied a new goal")
+        # print(msg)
+        self.goal_ori_pose = msg
+        self.is_smartjoy = False
+        self.is_goal_init = True
+        self.is_goal_processed = False
+        self.is_oriented = True
+        # reset fear reaction
+        self.fear_buffter = 0
+        self.is_fear_reaction = False
+        # reste planner status
+        self.planner_status.data = 0
 
     def pubRenderImage(self, preds, waypoints, odom, goal, fear, image):
         if torch.cuda.is_available():
@@ -224,6 +241,38 @@ class iPlannerNode:
         ros_img = ros_numpy.msgify(Image, image, encoding='8UC4')
         self.img_pub.publish(ros_img)
         return None
+    
+    def get_goal_roboframe(self):
+        if self.is_oriented:
+            goal_robot_frame = self.goal_ori_pose
+            if not self.goal_ori_pose.header.frame_id == self.frame_id:
+                try:
+                    goal_robot_frame.header.stamp = self.tf_listener.getLatestCommonTime(self.goal_ori_pose.header.frame_id,
+                                                                                            self.frame_id)
+                    goal_robot_frame = self.tf_listener.transformPose(self.frame_id, goal_robot_frame)
+                except (tf.Exception, tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
+                    rospy.logerr("Fail to transfer the goal into robot frame.")
+                    return
+            
+            self.goal_rb = torch.tensor([goal_robot_frame.pose.position.x, 
+                                            goal_robot_frame.pose.position.y,
+                                            goal_robot_frame.pose.position.z], dtype=torch.float32)[None, ...]
+            return
+        else:
+            goal_robot_frame = self.goal_pose
+            if not self.goal_pose.header.frame_id == self.frame_id:
+                try:
+                    goal_robot_frame.header.stamp = self.tf_listener.getLatestCommonTime(self.goal_pose.header.frame_id,
+                                                                                            self.frame_id)
+                    goal_robot_frame = self.tf_listener.transformPoint(self.frame_id, goal_robot_frame)
+                except (tf.Exception, tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
+                    rospy.logerr("Fail to transfer the goal into robot frame.")
+                    return
+            
+            self.goal_rb = torch.tensor([goal_robot_frame.point.x, 
+                                            goal_robot_frame.point.y,
+                                            goal_robot_frame.point.z], dtype=torch.float32)[None, ...]
+            return
 
     def imageCallback(self, msg):
         # rospy.loginfo("Received image %s: %d"%(msg.header.frame_id, msg.header.seq))
@@ -251,18 +300,20 @@ class iPlannerNode:
             return
 
         if self.is_goal_init:
-            goal_robot_frame = self.goal_pose
-            if not self.goal_pose.header.frame_id == self.frame_id:
-                try:
-                    goal_robot_frame.header.stamp = self.tf_listener.getLatestCommonTime(self.goal_pose.header.frame_id,
-                                                                                         self.frame_id)
-                    goal_robot_frame = self.tf_listener.transformPoint(self.frame_id, goal_robot_frame)
-                except (tf.Exception, tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
-                    rospy.logerr("Fail to transfer the goal into robot frame.")
-                    return
-            self.goal_rb = torch.tensor([goal_robot_frame.point.x, 
-                                         goal_robot_frame.point.y,
-                                         goal_robot_frame.point.z], dtype=torch.float32)[None, ...]
+            # goal_robot_frame = self.goal_pose
+            # if not self.goal_pose.header.frame_id == self.frame_id:
+            #     try:
+            #         goal_robot_frame.header.stamp = self.tf_listener.getLatestCommonTime(self.goal_pose.header.frame_id,
+            #                                                                              self.frame_id)
+            #         goal_robot_frame = self.tf_listener.transformPoint(self.frame_id, goal_robot_frame)
+            #     except (tf.Exception, tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
+            #         rospy.logerr("Fail to transfer the goal into robot frame.")
+            #         return
+            
+            # self.goal_rb = torch.tensor([goal_robot_frame.point.x, 
+            #                              goal_robot_frame.point.y,
+            #                              goal_robot_frame.point.z], dtype=torch.float32)[None, ...]
+            self.get_goal_roboframe()
         else:
             return
         self.ready_for_planning = True
@@ -281,6 +332,7 @@ if __name__ == '__main__':
     parser.add_argument('uint_type',         type=bool,  default=False,                      help="Flag to indicate if the image is in uint type.")
     parser.add_argument('depth_topic',       type=str,   default='/rgbd_camera/depth/image', help='ROS topic for depth image.')
     parser.add_argument('goal_topic',        type=str,   default='/way_point',               help='ROS topic for goal waypoints.')
+    parser.add_argument('goal_orin_topic',   type=str,   default='/goal',                    help='ROS topic for goal waypoints with orientation.')
     parser.add_argument('path_topic',        type=str,   default='/iplanner_path',           help='ROS topic for the iPlanner path.')
     parser.add_argument('image_topic',       type=str,   default='/path_image',              help='ROS topic for iPlanner image view.')
     parser.add_argument('camera_tilt',       type=float, default=0.0,                        help='Tilt angle of the camera.')

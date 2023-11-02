@@ -36,7 +36,7 @@ class TrajCost:
 
     def CostofTraj(self, waypoints, odom, goal, ahead_dist, alpha=0.5, beta=1.0, gamma=2.0, delta=5.0, obstalce_thred=0.5):
         batch_size, num_p, _ = waypoints.shape
-        if self.is_map:
+        if self.is_map:odom
             world_ps = self.TransformPoints(odom, waypoints)
             norm_inds, _ = self.tsdf_map.Pos2Ind(world_ps)
             # Obstacle Cost
