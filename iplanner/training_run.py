@@ -123,7 +123,7 @@ class PlannerNetTrainer:
                                      max_depth=self.args.max_camera_depth)
             
             total_img_data += len(train_data)
-            train_loader = MultiEpochsDataLoader(train_data, batch_size=self.args.batch_size, shuffle=True, num_workers=2)
+            train_loader = MultiEpochsDataLoader(train_data, batch_size=self.args.batch_size, shuffle=True, num_workers=1, drop_last=True)
             self.train_loader_list.append(train_loader)
 
             val_data = PlannerData(root=data_path,
@@ -135,7 +135,7 @@ class PlannerNetTrainer:
                                    max_episode=self.args.max_episode,
                                    max_depth=self.args.max_camera_depth)
 
-            val_loader = MultiEpochsDataLoader(val_data, batch_size=self.args.batch_size, shuffle=True, num_workers=2)
+            val_loader = MultiEpochsDataLoader(val_data, batch_size=self.args.batch_size, shuffle=True, num_workers=1, drop_last=True)
             self.val_loader_list.append(val_loader)
 
             # Load Map and Trajectory Class
@@ -147,16 +147,27 @@ class PlannerNetTrainer:
             self.traj_viz_list.append(TrajViz(data_path, map_name=map_name, cameraTilt=camera_tilt))
             track_id += 1
             
+            break
+            
         print("Data Loading Completed!")
         print("Number of image: %d | Number of goal-image pairs: %d"%(total_img_data, total_img_data * (int)(self.args.max_episode / self.args.goal_step)))
         
         return None
 
     def MapObsLoss(self, preds, fear, traj_cost, odom, goal, step=0.1):
-        waypoints = traj_cost.opt.TrajGeneratorFromPFreeRot(preds, step=step)
-        loss1, fear_labels = traj_cost.CostofTraj(waypoints, odom, goal, ahead_dist=self.args.fear_ahead_dist)
+        # waypoints = traj_cost.opt.TrajGeneratorFromPFreeRot(preds, step=step)
+        traj, mpc_cost = traj_cost.planner.trajGenerate(preds)
+        loss1, fear_labels = traj_cost.CostofTraj(traj, odom, goal, ahead_dist=self.args.fear_ahead_dist)
+        # loss1, fear_labels = traj_cost.CostofTraj(waypoints, odom, goal, ahead_dist=self.args.fear_ahead_dist)
         loss2 = F.binary_cross_entropy(fear, fear_labels)
-        return loss1+loss2, waypoints
+        print("\nThe loss1 is: ", loss1)
+        print("The loss2 is: ", loss2)
+        print("The mpc_cost is: ", mpc_cost.mean())
+        # mpc_cost_sig = torch.sigmoid(mpc_cost.mean())/2
+        # print("The mpc_cost_sig is: ", mpc_cost_sig)
+        # return loss1+loss2+mpc_cost.mean(), waypoints
+        return loss1+loss2, traj
+        # return loss1+loss2, waypoints
     
     def train_epoch(self, epoch):
         loss_sum = 0.0

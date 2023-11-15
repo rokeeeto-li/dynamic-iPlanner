@@ -257,6 +257,16 @@ class iPlannerNode:
             self.goal_rb = torch.tensor([goal_robot_frame.pose.position.x, 
                                             goal_robot_frame.pose.position.y,
                                             goal_robot_frame.pose.position.z], dtype=torch.float32)[None, ...]
+            
+            
+            self.goal_pose_tensor = torch.tensor([goal_robot_frame.pose.position.x,
+                                            goal_robot_frame.pose.position.y,
+                                            goal_robot_frame.pose.position.z,
+                                            goal_robot_frame.pose.orientation.x,
+                                            goal_robot_frame.pose.orientation.y,
+                                            goal_robot_frame.pose.orientation.z,
+                                            goal_robot_frame.pose.orientation.w], dtype=torch.float32)[None, ...]
+            print("the target orientation is: ", self.goal_pose_tensor)
             return
         else:
             goal_robot_frame = self.goal_pose

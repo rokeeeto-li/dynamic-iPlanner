@@ -11,6 +11,7 @@ import torch
 import pypose as pp
 from tsdf_map import TSDF_Map
 from traj_opt import TrajOpt
+from traj_plan import TrajPlanner
 import torch.nn.functional as F
 
 torch.set_default_dtype(torch.float32)
@@ -18,6 +19,7 @@ torch.set_default_dtype(torch.float32)
 class TrajCost:
     def __init__(self, gpu_id=0):
         self.tsdf_map = TSDF_Map(gpu_id)
+        self.planner = TrajPlanner(is_train=True)
         self.opt = TrajOpt()
         self.is_map = False
         return None
@@ -34,9 +36,9 @@ class TrajCost:
         self.is_map = True
         return
 
-    def CostofTraj(self, waypoints, odom, goal, ahead_dist, alpha=0.5, beta=1.0, gamma=2.0, delta=5.0, obstalce_thred=0.5):
+    def CostofTraj(self, waypoints, odom, goal, ahead_dist, alpha=0.05, beta=1.0, gamma=2.0, delta=5.0, obstalce_thred=0.5):
         batch_size, num_p, _ = waypoints.shape
-        if self.is_map:odom
+        if self.is_map:
             world_ps = self.TransformPoints(odom, waypoints)
             norm_inds, _ = self.tsdf_map.Pos2Ind(world_ps)
             # Obstacle Cost
@@ -63,12 +65,22 @@ class TrajCost:
         mloss = torch.abs(desired_ds - wp_ds)
         mloss = torch.sum(mloss, axis=1)
         mloss = torch.mean(mloss)
-
+                
         # Fear labels
         goal_dists = torch.cumsum(wp_ds, dim=1, dtype=wp_ds.dtype)
         floss_M = torch.clone(oloss_M)[:, 1:]
         floss_M[goal_dists > ahead_dist] = 0.0
         fear_labels = torch.max(floss_M, 1, keepdim=True)[0]
         fear_labels = (fear_labels > obstalce_thred).to(torch.float32)
+        
+        total_loss = alpha*oloss + beta*hloss + gamma*mloss + delta*gloss
+        
+        print("\nthe obstacle cost is:", oloss)
+        print("the height cost is:", hloss)
+        print("the motion cost is:", mloss)
+        print("the goal cost is:", gloss)
+        
+        # print("the mpc cost is:", cost_mpc)
+        # print("the total cost is:", total_loss)
 
-        return alpha*oloss + beta*hloss + gamma*mloss + delta*gloss, fear_labels
+        return total_loss, fear_labels

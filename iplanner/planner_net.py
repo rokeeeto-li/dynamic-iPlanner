@@ -27,7 +27,7 @@ class PlannerNet(nn.Module):
 class Decoder(nn.Module):
     def __init__(self, in_channels, goal_channels, k=5):
         super().__init__()
-        self.k = k
+        self.k = k # waypoints amount
         self.relu    = nn.ReLU(inplace=True)
         self.fg      = nn.Linear(3, goal_channels)
         self.sigmoid = nn.Sigmoid()
