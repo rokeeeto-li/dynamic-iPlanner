@@ -46,7 +46,7 @@ class PlannerNetTrainer:
         # Initialize wandb
         self.wandb_run = wandb.init(
             # set the wandb project where this run will be logged
-            project="imperative-path-planning",
+            project="dynamic_iPlanner",
             # Set the run name to current date and time
             name=date_time_str + "adamW",
             config={
@@ -147,7 +147,7 @@ class PlannerNetTrainer:
             self.traj_viz_list.append(TrajViz(data_path, map_name=map_name, cameraTilt=camera_tilt))
             track_id += 1
             
-            break
+            # break
             
         print("Data Loading Completed!")
         print("Number of image: %d | Number of goal-image pairs: %d"%(total_img_data, total_img_data * (int)(self.args.max_episode / self.args.goal_step)))
@@ -156,18 +156,11 @@ class PlannerNetTrainer:
 
     def MapObsLoss(self, preds, fear, traj_cost, odom, goal, step=0.1):
         # waypoints = traj_cost.opt.TrajGeneratorFromPFreeRot(preds, step=step)
+        # loss1, fear_labels = traj_cost.CostofTraj(waypoints, odom, goal, ahead_dist=self.args.fear_ahead_dist)
         traj, mpc_cost = traj_cost.planner.trajGenerate(preds)
         loss1, fear_labels = traj_cost.CostofTraj(traj, odom, goal, ahead_dist=self.args.fear_ahead_dist)
-        # loss1, fear_labels = traj_cost.CostofTraj(waypoints, odom, goal, ahead_dist=self.args.fear_ahead_dist)
         loss2 = F.binary_cross_entropy(fear, fear_labels)
-        print("\nThe loss1 is: ", loss1)
-        print("The loss2 is: ", loss2)
-        print("The mpc_cost is: ", mpc_cost.mean())
-        # mpc_cost_sig = torch.sigmoid(mpc_cost.mean())/2
-        # print("The mpc_cost_sig is: ", mpc_cost_sig)
-        # return loss1+loss2+mpc_cost.mean(), waypoints
-        return loss1+loss2, traj
-        # return loss1+loss2, waypoints
+        return loss1+loss2+mpc_cost.mean()*0.1, traj
     
     def train_epoch(self, epoch):
         loss_sum = 0.0

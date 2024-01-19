@@ -160,7 +160,7 @@ class TrajViz:
         is_shown (bool): If True, show images; otherwise, return image list
         """
         batch_size, _, _ = waypoints.shape
-
+        
         preds_ws = self.TransformPoints(odom, preds)
         wp_ws = self.TransformPoints(odom, waypoints)
 

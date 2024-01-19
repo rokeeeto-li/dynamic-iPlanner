@@ -12,6 +12,7 @@ depth_topic:            /rgbd_camera/depth/image
 goal_topic:             /way_point
 path_topic:             /path
 image_topic:            /iplanner_image
+preds_topic:            /preds
 camera_tilt:            0.0
 depth_max:              10.0
 # frame ids

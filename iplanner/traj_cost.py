@@ -75,10 +75,10 @@ class TrajCost:
         
         total_loss = alpha*oloss + beta*hloss + gamma*mloss + delta*gloss
         
-        print("\nthe obstacle cost is:", oloss)
-        print("the height cost is:", hloss)
-        print("the motion cost is:", mloss)
-        print("the goal cost is:", gloss)
+        # print("\nthe obstacle cost is:", oloss)
+        # print("the height cost is:", hloss)
+        # print("the motion cost is:", mloss)
+        # print("the goal cost is:", gloss)
         
         # print("the mpc cost is:", cost_mpc)
         # print("the total cost is:", total_loss)

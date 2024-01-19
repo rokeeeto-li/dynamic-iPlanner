@@ -13,10 +13,12 @@ import sys
 import torch
 import rospy
 import rospkg
+import struct
 import tf
 import numpy as np
-from sensor_msgs.msg import Image, Joy
-from std_msgs.msg import Int16
+from sensor_msgs.msg import Image, Joy, PointCloud2, PointField
+import sensor_msgs.point_cloud2 as pc2
+from std_msgs.msg import Int16, Header
 from nav_msgs.msg import Path
 from geometry_msgs.msg import PoseStamped, PointStamped
 import ros_numpy
@@ -70,7 +72,8 @@ class iPlannerNode:
         self.status_pub = rospy.Publisher(status_topic, Int16, queue_size=10)
         # image visualizer
         self.img_pub = rospy.Publisher(self.image_topic, Image, queue_size=10)
-        self.path_pub  = rospy.Publisher(self.path_topic, Path, queue_size=10)
+        self.path_pub = rospy.Publisher(self.path_topic, Path, queue_size=10)
+        self.preds_pub = rospy.Publisher(self.preds_topic, PointCloud2, queue_size=10)
         self.fear_path_pub = rospy.Publisher(self.path_topic + "_fear", Path, queue_size=10)
 
         rospy.loginfo("iPlanner Ready.")
@@ -83,6 +86,7 @@ class iPlannerNode:
         self.goal_orin_topic = args.goal_orin_topic
         self.path_topic  = args.path_topic
         self.image_topic = args.image_topic
+        self.preds_topic = args.preds_topic
         self.camera_tilt = args.camera_tilt
         self.frame_id    = args.robot_id
         self.world_id    = args.world_id
@@ -127,11 +131,30 @@ class iPlannerNode:
                         if self.planner_status.data == 0:
                             self.planner_status.data = -1
                             self.status_pub.publish(self.planner_status)
+                self.pubPreds()
                 self.pubPath(self.waypoints, self.is_goal_init)
                 # visualize image
                 self.pubRenderImage(self.preds, self.waypoints, self.odom, self.goal_rb, self.fear, img_process)
             r.sleep()
         rospy.spin()
+        
+    def pubPreds(self):
+        header = Header()
+        header.stamp = rospy.Time.now()
+        header.frame_id = self.frame_id
+        fields = [PointField('x', 0, PointField.FLOAT32, 1),
+                PointField('y', 4, PointField.FLOAT32, 1),
+                PointField('z', 8, PointField.FLOAT32, 1),
+                PointField('rgba', 12, PointField.UINT32, 1)]
+        # preds = self.traj_viz.TransformPoints(self.odom, self.preds.cpu()).squeeze(0)
+        # preds = preds.tensor()[..., 0:3].cpu().detach().numpy()
+        preds = self.preds[..., 0:3].squeeze(0).cpu().detach().numpy()
+        r,g,b,a = 255, 255, 0, 255
+        rgb = struct.unpack('I', struct.pack('BBBB', b, g, r, a))[0]
+        points = [tuple(list(x) + [rgb]) for x in preds.tolist()]
+        print("The points are: ", points)
+        pc2_msg = pc2.create_cloud(header, fields, points)
+        self.preds_pub.publish(pc2_msg)
 
     def pubPath(self, waypoints, is_goal_init=True):
         path = Path()
@@ -345,6 +368,7 @@ if __name__ == '__main__':
     parser.add_argument('goal_orin_topic',   type=str,   default='/goal',                    help='ROS topic for goal waypoints with orientation.')
     parser.add_argument('path_topic',        type=str,   default='/iplanner_path',           help='ROS topic for the iPlanner path.')
     parser.add_argument('image_topic',       type=str,   default='/path_image',              help='ROS topic for iPlanner image view.')
+    parser.add_argument('preds_topic',       type=str,   default='/preds',                   help='ROS topic for the iPlanner predictions.')
     parser.add_argument('camera_tilt',       type=float, default=0.0,                        help='Tilt angle of the camera.')
     parser.add_argument('robot_id',          type=str,   default='base',                     help='TF frame ID for the robot.')
     parser.add_argument('world_id',          type=str,   default='odom',                     help='TF frame ID for the world.')

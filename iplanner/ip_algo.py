@@ -8,6 +8,7 @@
 # ======================================================================
 
 import PIL
+import json
 import math
 import torch
 import pypose as pp
@@ -20,7 +21,6 @@ class IPlannerAlgo:
     def __init__(self, args):
         super(IPlannerAlgo, self).__init__()
         self.config(args)
-        # self.mpc_config()
 
         self.depth_transform = transforms.Compose([
             transforms.Resize(tuple(self.crop_size)),
@@ -29,6 +29,7 @@ class IPlannerAlgo:
         net, _ = torch.load(self.model_save, map_location=torch.device("cpu"))
         self.net = net.cuda() if torch.cuda.is_available() else net
 
+        self.idx = 0
         self.traj_generate = traj_opt.TrajOpt()
         self.traj_planner = traj_plan.TrajPlanner(is_train=False)
         return None
@@ -42,6 +43,26 @@ class IPlannerAlgo:
         if math.hypot(self.sensor_offset_x, self.sensor_offset_y) > 1e-1:
             self.is_traj_shift = True
         return None
+    
+    def save_traj(self, waypoints, traj, cost):
+        waypoints_json = waypoints.tolist()
+        traj_json = traj.tolist()
+        cost_json = cost.tolist()
+        
+        data = {
+            "waypoints": waypoints_json,
+            "x_traj": traj_json,
+            "cost": cost_json
+        }
+
+        json_data = json.dumps(data)
+        json_path = "/home/qihang/iplanner_ws/src/iPlanner/iplanner/trajs/traj_%d.json"%(self.idx)
+
+        with open(json_path, "w") as file:
+            file.write(json_data)
+            print("The traj info stored")
+            self.idx += 1
+
     
     def plan(self, image, goal_robot_frame):
         img = PIL.Image.fromarray(image)
@@ -62,5 +83,7 @@ class IPlannerAlgo:
         
         keypts_cpu = keypoints.to(torch.device("cpu"))
         mpc_traj, cost = self.traj_planner.trajGenerate(keypts_cpu)
-        traj_gpu = mpc_traj.to(torch.device("cuda"))
+        traj_gpu = mpc_traj[..., :3].to(torch.device("cuda"))
+        
+        # self.save_traj(keypts_cpu, mpc_traj, cost)
         return keypoints, traj_gpu, fear, img

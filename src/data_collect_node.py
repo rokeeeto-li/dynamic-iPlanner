@@ -128,6 +128,7 @@ class DataCollector:
                     print("Wait to get odometry extrinsic.")
                 
             # save images, depths and odom
+            print("len odom list: %d", len(self.__odom_list))
             if len(self.__odom_list) > 0:
                 if len(last_odom) > 0 and np.linalg.norm(np.array(last_odom) - np.array(self.__odom_list)) < 1e-2:
                     self.__odom_list.clear()
