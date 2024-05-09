@@ -23,7 +23,8 @@ import torchvision.transforms as transforms
 from planner_net import PlannerNet
 from dataloader import PlannerData, MultiEpochsDataLoader
 from torchutil import EarlyStopScheduler
-from traj_cost import TrajCost
+# from traj_cost import TrajCost
+from traj_cost import MulLayerCost
 from traj_viz import TrajViz
 
 torch.set_default_dtype(torch.float32)
@@ -43,12 +44,15 @@ class PlannerNetTrainer:
     def init_wandb(self):
         # Convert to string in the format you prefer
         date_time_str = datetime.now().strftime("%d-%m-%Y-%H-%M-%S")
+        root_len = len(self.root_folder)
+        model_name = self.args.model_save[root_len+8:-3]
+        print("Model Name: ", model_name)
         # Initialize wandb
         self.wandb_run = wandb.init(
             # set the wandb project where this run will be logged
             project="dynamic_iPlanner",
             # Set the run name to current date and time
-            name=date_time_str + "adamW",
+            name=model_name+date_time_str + "adamW",
             config={
                 "learning_rate": self.args.lr,
                 "architecture": "PlannerNet",  # Replace with your actual architecture
@@ -57,6 +61,13 @@ class PlannerNetTrainer:
                 "goal_step": self.args.goal_step,
                 "max_episode": self.args.max_episode,
                 "fear_ahead_dist": self.args.fear_ahead_dist,
+                "cost-alpha": self.args.alpha,
+                "cost-beta": self.args.beta,
+                "cost-gamma": self.args.gamma,
+                "cost-delta": self.args.delta,
+                "cost-epi": self.args.epi,
+                "cost-zeta": self.args.zeta,
+                "obs_threshold": self.args.obs_threshold,
             }
         )
 
@@ -65,7 +76,7 @@ class PlannerNetTrainer:
             self.config = json.load(json_file)
 
     def prepare_model(self):
-        self.net = PlannerNet(self.args.in_channel, self.args.knodes)
+        self.net = PlannerNet(self.args.in_channel, k=self.args.knodes)
         if self.args.resume == True or not self.args.training:
             self.net, self.best_loss = torch.load(self.args.model_save, map_location=torch.device("cpu"))
             print("Resume training from best loss: {}".format(self.best_loss))
@@ -120,10 +131,12 @@ class PlannerNetTrainer:
                                      is_robot=is_anymal_frame,
                                      goal_step=self.args.goal_step,
                                      max_episode=self.args.max_episode,
-                                     max_depth=self.args.max_camera_depth)
+                                     max_depth=self.args.max_camera_depth,
+                                     v_ref=self.args.v_ref,
+                                     v_num=self.args.v_num)
             
             total_img_data += len(train_data)
-            train_loader = MultiEpochsDataLoader(train_data, batch_size=self.args.batch_size, shuffle=True, num_workers=1, drop_last=True)
+            train_loader = MultiEpochsDataLoader(train_data, batch_size=self.args.batch_size, shuffle=True, num_workers=self.args.num_workers, drop_last=True)
             self.train_loader_list.append(train_loader)
 
             val_data = PlannerData(root=data_path,
@@ -133,37 +146,45 @@ class PlannerNetTrainer:
                                    is_robot=is_anymal_frame,
                                    goal_step=self.args.goal_step,
                                    max_episode=self.args.max_episode,
-                                   max_depth=self.args.max_camera_depth)
+                                   max_depth=self.args.max_camera_depth,
+                                   v_ref=self.args.v_ref,
+                                   v_num=self.args.v_num)
 
-            val_loader = MultiEpochsDataLoader(val_data, batch_size=self.args.batch_size, shuffle=True, num_workers=1, drop_last=True)
+            val_loader = MultiEpochsDataLoader(val_data, batch_size=self.args.batch_size, shuffle=True, num_workers=self.args.num_workers, drop_last=True)
             self.val_loader_list.append(val_loader)
 
             # Load Map and Trajectory Class
             map_name = "tsdf1"
-            traj_cost = TrajCost(self.args.gpu_id)
+            traj_cost = MulLayerCost(self.args.gpu_id, self.args.batch_size, alpha=self.args.alpha, beta=self.args.beta, 
+                                     gamma=self.args.gamma, delta=self.args.delta, epi=self.args.epi, zeta=self.args.zeta, obstalce_thred=self.args.obs_threshold)
+            # traj_cost = TrajCost(self.args.gpu_id, self.args.batch_size)
             traj_cost.SetMap(data_path, map_name)
 
             self.traj_cost_list.append(traj_cost)
             self.traj_viz_list.append(TrajViz(data_path, map_name=map_name, cameraTilt=camera_tilt))
             track_id += 1
-            
-            # break
-            
+
+            # break 
+                        
         print("Data Loading Completed!")
         print("Number of image: %d | Number of goal-image pairs: %d"%(total_img_data, total_img_data * (int)(self.args.max_episode / self.args.goal_step)))
         
         return None
 
-    def MapObsLoss(self, preds, fear, traj_cost, odom, goal, step=0.1):
-        # waypoints = traj_cost.opt.TrajGeneratorFromPFreeRot(preds, step=step)
-        # loss1, fear_labels = traj_cost.CostofTraj(waypoints, odom, goal, ahead_dist=self.args.fear_ahead_dist)
-        traj, mpc_cost = traj_cost.planner.trajGenerate(preds)
-        loss1, fear_labels = traj_cost.CostofTraj(traj, odom, goal, ahead_dist=self.args.fear_ahead_dist)
-        loss2 = F.binary_cross_entropy(fear, fear_labels)
-        return loss1+loss2+mpc_cost.mean()*0.1, traj
+    # def MapObsLoss(self, preds, fear, traj_cost, odom, goal, step=0.1):
+    #     # return traj_cost.CalCost(preds, odom, goal, self.args.fear_ahead_dist, fear)
+        
+    #     # waypoints = traj_cost.opt.TrajGeneratorFromPFreeRot(preds, step=step)
+    #     # loss1, fear_labels = traj_cost.CostofTraj(waypoints, odom, goal, ahead_dist=self.args.fear_ahead_dist)
+    #     traj, mpc_cost = traj_cost.planner.trajGenerate(preds)
+    #     loss1, fear_labels = traj_cost.CostofTraj(traj, odom, goal, ahead_dist=self.args.fear_ahead_dist)
+    #     loss2 = F.binary_cross_entropy(fear, fear_labels)
+    #     # return loss1+loss2, traj
+    #     return loss1+loss2+mpc_cost.mean(), traj
     
     def train_epoch(self, epoch):
         loss_sum = 0.0
+        p_sum, o_sum, h_sum, g_sum, m_sum, f_sum, mpc_sum = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
         env_num = len(self.train_loader_list)
         
         # Zip the lists and convert to a list of tuples
@@ -174,6 +195,7 @@ class PlannerNetTrainer:
         # Iterate through shuffled pairs
         for env_id, (loader, traj_cost) in enumerate(combined):
             train_loss, batches = 0, len(loader)
+            train_ploss, train_oloss, train_hloss, train_gloss, train_mloss, train_fearloss, train_mpc_cost = 0, 0, 0, 0, 0, 0, 0
 
             enumerater = tqdm.tqdm(enumerate(loader))
             for batch_idx, inputs in enumerater:
@@ -181,22 +203,47 @@ class PlannerNetTrainer:
                     image = inputs[0].cuda(self.args.gpu_id)
                     odom  = inputs[1].cuda(self.args.gpu_id)
                     goal  = inputs[2].cuda(self.args.gpu_id)
+                    vel   = inputs[3].cuda(self.args.gpu_id)
                 self.optimizer.zero_grad()
-                preds, fear = self.net(image, goal)
+                # normlized_vel = vel / self.args.v_ref
+                preds, fear = self.net(image, goal, vel)
+                # print("fear is", torch.sum(fear))
 
-                loss, _ = self.MapObsLoss(preds, fear, traj_cost, odom, goal)
-
+                loss, _, ploss, oloss, hloss, gloss, mloss, fearloss, mpc_cost = traj_cost.CalCost(preds, odom, goal, self.args.fear_ahead_dist, fear)
+                # loss, _ = self.MapObsLoss(preds, fear, traj_cost, odom, goal)
                 loss.backward()
                 self.optimizer.step()
                 train_loss += loss.item()
+                train_ploss += ploss.item()
+                train_oloss += oloss.item()
+                train_hloss += hloss.item()
+                train_gloss += gloss.item()
+                train_mloss += mloss.item()
+                train_fearloss += fearloss.item()
+                train_mpc_cost += mpc_cost.mean().item()
                 enumerater.set_description("Epoch: %d in Env: (%d/%d) - train loss: %.4f on %d/%d" % (epoch, env_id+1, env_num, train_loss/(batch_idx+1), batch_idx, batches))
             
             loss_sum += train_loss/(batch_idx+1)
+            p_sum += train_ploss/(batch_idx+1)
+            o_sum += train_oloss/(batch_idx+1)
+            h_sum += train_hloss/(batch_idx+1)
+            g_sum += train_gloss/(batch_idx+1)
+            m_sum += train_mloss/(batch_idx+1)
+            f_sum += train_fearloss/(batch_idx+1)
+            mpc_sum += train_mpc_cost/(batch_idx+1)
+
             wandb.log({"Running Loss": train_loss/(batch_idx+1)})
             
         loss_sum /= env_num
+        p_sum /= env_num
+        o_sum /= env_num
+        h_sum /= env_num
+        g_sum /= env_num
+        m_sum /= env_num
+        f_sum /= env_num
+        mpc_sum /= env_num
 
-        return loss_sum
+        return loss_sum, p_sum, o_sum, h_sum, g_sum, m_sum, f_sum, mpc_sum
         
     def train(self):
         # Convert to string in the format you prefer
@@ -207,13 +254,31 @@ class PlannerNetTrainer:
 
         for epoch in range(self.args.epochs):
             start_time = time.time()
-            train_loss = self.train_epoch(epoch)
-            val_loss = self.evaluate(is_visualize=False)
+            train_loss, train_p, train_o, train_h, train_g, train_m, train_f, train_mpc = self.train_epoch(epoch)
+            val_loss, val_p, val_o, val_h, val_g, val_m, val_f, val_mpc= self.evaluate(is_visualize=False)
             duration = (time.time() - start_time) / 60 # minutes
 
             self.log_message("Epoch: %d | Training Loss: %f | Val Loss: %f | Duration: %f" % (epoch, train_loss, val_loss, duration))
             # Log metrics to wandb
-            wandb.log({"Avg Training Loss": train_loss, "Validation Loss": val_loss, "Duration (min)": duration})
+            wandb.log({"Avg Training Loss": train_loss, 
+                       "Validation Loss": val_loss, 
+                       "Duration (min)": duration})
+            wandb.log({"train":
+                       {"Train-Pred obs": train_p, 
+                       "Train-Traj obs": train_o, 
+                       "Train-Traj height": train_h, 
+                       "Train-Goal": train_g, 
+                       "Train-Motion": train_m, 
+                       "Train-Fear": train_f, 
+                       "Train-MPC": train_mpc},
+                       "val":
+                       {"Val-Pred obs": val_p,
+                        "Val-Traj obs": val_o,
+                        "Val-Traj height": val_h,
+                        "Val-Goal": val_g,
+                        "Val-Motion": val_m,
+                        "Val-Fear": val_f,
+                        "Val-MPC": val_mpc}})
             
             if val_loss < self.best_loss:
                 self.log_message("Save model of epoch %d" % epoch)
@@ -239,6 +304,14 @@ class PlannerNetTrainer:
     def evaluate(self, is_visualize=False):
             self.net.eval()
             test_loss = 0   # Declare and initialize test_loss
+            test_ploss = 0
+            test_oloss = 0
+            test_hloss = 0
+            test_gloss = 0
+            test_mloss = 0
+            test_fearloss = 0
+            test_mpc_cost = 0
+
             total_batches = 0  # Count total number of batches
             with torch.no_grad():
                 for _, (val_loader, traj_cost, traj_viz) in enumerate(zip(self.val_loader_list, self.traj_cost_list, self.traj_viz_list)):
@@ -250,10 +323,20 @@ class PlannerNetTrainer:
                             image = inputs[0].cuda(self.args.gpu_id)
                             odom  = inputs[1].cuda(self.args.gpu_id)
                             goal  = inputs[2].cuda(self.args.gpu_id)
+                            vel   = inputs[3].cuda(self.args.gpu_id)
 
-                        preds, fear = self.net(image, goal)
-                        loss, waypoints = self.MapObsLoss(preds, fear, traj_cost, odom, goal)
+                        # normlized_vel = vel / self.args.v_ref
+                        preds, fear = self.net(image, goal, vel)
+                        loss, waypoints, ploss, oloss, hloss, gloss, mloss, fearloss, mpc_cost = traj_cost.CalCost(preds, odom, goal, self.args.fear_ahead_dist, fear, vel=vel)
+                        # loss, waypoints = self.MapObsLoss(preds, fear, traj_cost, odom, goal)
                         test_loss += loss.item()
+                        test_ploss += ploss.item()
+                        test_oloss += oloss.item()
+                        test_hloss += hloss.item()
+                        test_gloss += gloss.item()
+                        test_mloss += mloss.item()
+                        test_fearloss += fearloss.item()
+                        test_mpc_cost += mpc_cost.mean().item()
 
                         if is_visualize and len(preds_viz) < self.args.visual_number:
                             if batch_idx == 0:
@@ -281,8 +364,16 @@ class PlannerNetTrainer:
                         traj_viz.VizTrajectory(preds_viz, wp_viz, odom_viz, goal_viz, fear_viz)
                         traj_viz.VizImages(preds_viz, wp_viz, odom_viz, goal_viz, fear_viz, image_viz)
 
-                return test_loss / total_batches  # Compute mean test_loss
+                test_loss /= total_batches
+                test_ploss /= total_batches
+                test_oloss /= total_batches
+                test_hloss /= total_batches
+                test_gloss /= total_batches
+                test_mloss /= total_batches
+                test_fearloss /= total_batches
+                test_mpc_cost /= total_batches
 
+                return test_loss, test_ploss, test_oloss, test_hloss, test_gloss, test_mloss, test_fearloss, test_mpc_cost
     def parse_args(self):
         parser = argparse.ArgumentParser(description='Training script for PlannerNet')
 
@@ -300,7 +391,18 @@ class PlannerNetTrainer:
         parser.add_argument("--knodes", type=int, default=self.config['modelConfig'].get('knodes'), help="number of max nodes predicted")
         parser.add_argument("--goal-step", type=int, default=self.config['modelConfig'].get('goal-step'), help="number of frames betwen goals")
         parser.add_argument("--max-episode", type=int, default=self.config['modelConfig'].get('max-episode-length'), help="maximum episode frame length")
+        parser.add_argument("--v-ref", type=float, default=self.config['modelConfig'].get('v-ref'), help="reference velocity")
+        parser.add_argument("--v-num", type=int, default=self.config['modelConfig'].get('v-num'), help="velocity level amount")
 
+        # costConfig
+        parser.add_argument("--alpha", type=float, default=self.config['costConfig'].get('alpha'), help="weight of pred obstacle cost")
+        parser.add_argument("--beta", type=float, default=self.config['costConfig'].get('beta'), help="weight of traj obstacle cost")
+        parser.add_argument("--gamma", type=float, default=self.config['costConfig'].get('gamma'), help="weight of traj height cost")
+        parser.add_argument("--delta", type=float, default=self.config['costConfig'].get('delta'), help="weight of goal cost")
+        parser.add_argument("--epi", type=float, default=self.config['costConfig'].get('epi'), help="weight of motion cost")
+        parser.add_argument("--zeta", type=float, default=self.config['costConfig'].get('zeta'), help="weight of controller cost")
+        parser.add_argument("--obs-threshold", type=float, default=self.config['costConfig'].get('obs-threshold'), help="obstacle threshold")
+        
         # trainingConfig
         parser.add_argument('--training', type=str, default=self.config['trainingConfig'].get('training'))
         parser.add_argument("--lr", type=float, default=self.config['trainingConfig'].get('lr'), help="learning rate")

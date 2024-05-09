@@ -52,11 +52,14 @@ class _RepeatSampler(object):
             yield from iter(self.sampler)
 
 class PlannerData(Dataset):
-    def __init__(self, root, max_episode, goal_step, train, ratio=0.9, max_depth=10.0, sensorOffsetX=0.0, transform=None, is_robot=True):
+    def __init__(self, root, max_episode, goal_step, train, ratio=0.9, max_depth=10.0, sensorOffsetX=0.0, transform=None, is_robot=True, v_ref=5.0, v_num=3):
         super().__init__()
         self.transform = transform
         self.is_robot = is_robot
         self.max_depth = max_depth
+        self.v_ref = v_ref
+        self.v_num = v_num
+
         img_filename_list = []
         img_path = os.path.join(root, "depth")
         img_filename_list = [str(s) for s in Path(img_path).rglob('*.png')]
@@ -64,6 +67,7 @@ class PlannerData(Dataset):
 
         odom_path = os.path.join(root, "odom_ground_truth.txt")
         odom_list = []
+        # ori_list = []
         offset_T = pp.identity_SE3()
         offset_T.tensor()[0] = sensorOffsetX
         with open(odom_path) as f:
@@ -77,25 +81,42 @@ class PlannerData(Dataset):
 
         N = len(odom_list)
 
+        # for i in range(N-1):
+        #     ori = odom_list[i+1].translation() - odom_list[i].translation()
+        #     ori = ori/ori.norm(dim = -1)
+        #     ori_list.append(ori)
+            
         self.img_filename = []
         self.odom_list    = []
         self.goal_list    = []
+        self.v_list       = []
 
         for ahead in range(1, max_episode+1, goal_step):
-            for i in range(N):
-                odom = odom_list[i]
-                goal = odom_list[min(i+ahead, N-1)]
-                goal = (pp.Inv(odom) @ goal)
-                # gp = goal.tensor()
-                # if (gp[0] > 1.0 and gp[1]/gp[0] < 1.2 and gp[1]/gp[0] > -1.2 and torch.norm(gp[:3]) > 1.0):
-                self.img_filename.append(img_filename_list[i])
-                self.odom_list.append(odom.tensor())
-                self.goal_list.append(goal.tensor())
-
+            for v in np.linspace(0, 1, v_num):
+            # for v in range(0, v_ref, v_step):
+                for i in range(N-1):
+                    # if torch.any(torch.isnan(ori_list[i])):
+                    #     continue
+                    odom = odom_list[i]
+                    goal = odom_list[min(i+ahead, N-2)]
+                    goal = (pp.Inv(odom) @ goal)
+                    # gp = goal.tensor()
+                    # if (gp[0] > 1.0 and gp[1]/gp[0] < 1.2 and gp[1]/gp[0] > -1.2 and torch.norm(gp[:3]) > 1.0):
+                    next_odom = odom_list[i+1]
+                    next_rb = (pp.Inv(odom) @ next_odom).translation()
+                    curr_vel = v*next_rb/next_rb.norm(dim=-1)
+                    if torch.any(torch.isnan(curr_vel)):
+                        continue
+                    self.img_filename.append(img_filename_list[i])
+                    self.odom_list.append(odom.tensor())
+                    self.goal_list.append(goal.tensor())
+                    # self.v_list.append(v*ori_list[i])
+                    self.v_list.append(curr_vel)
+        
         N = len(self.odom_list)
 
         indexfile = os.path.join(img_path, 'split.pt')
-        is_generate_split = True;
+        is_generate_split = True
         if os.path.exists(indexfile):
             train_index, test_index = torch.load(indexfile)
             if len(train_index)+len(test_index) == N:
@@ -112,10 +133,12 @@ class PlannerData(Dataset):
             self.img_filename = itemgetter(*train_index)(self.img_filename)
             self.odom_list    = itemgetter(*train_index)(self.odom_list)
             self.goal_list    = itemgetter(*train_index)(self.goal_list)
+            self.v_list       = itemgetter(*train_index)(self.v_list)
         else:
             self.img_filename = itemgetter(*test_index)(self.img_filename)
             self.odom_list    = itemgetter(*test_index)(self.odom_list)
             self.goal_list    = itemgetter(*test_index)(self.goal_list)
+            self.v_list       = itemgetter(*test_index)(self.v_list)
 
         assert len(self.odom_list) == len(self.img_filename), "odom numbers should match with image numbers"
         
@@ -138,4 +161,4 @@ class PlannerData(Dataset):
         image = Image.fromarray(image)
         image = self.transform(image).expand(3, -1, -1)
 
-        return image, self.odom_list[idx], self.goal_list[idx]
+        return image, self.odom_list[idx], self.goal_list[idx], self.v_list[idx]

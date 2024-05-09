@@ -11,11 +11,12 @@ import PIL
 import json
 import math
 import torch
-import pypose as pp
+# import pypose as pp
 import torchvision.transforms as transforms
 
-from iplanner import traj_opt
+# from iplanner import traj_opt
 from iplanner import traj_plan
+from dynamics import SecondOrderLinear
 
 class IPlannerAlgo:
     def __init__(self, args):
@@ -30,8 +31,10 @@ class IPlannerAlgo:
         self.net = net.cuda() if torch.cuda.is_available() else net
 
         self.idx = 0
-        self.traj_generate = traj_opt.TrajOpt()
-        self.traj_planner = traj_plan.TrajPlanner(is_train=False)
+        # self.traj_generate = traj_opt.TrajOpt()
+        self.dynamic = SecondOrderLinear()
+        self.traj_planner = traj_plan.TrajPlanner2(is_train=False, dynamic=self.dynamic)
+        # self.traj_planner = traj_plan.TrajPlanner(is_train=False)
         return None
 
     def config(self, args):
@@ -80,10 +83,13 @@ class IPlannerAlgo:
             keypoints[..., 1] += self.sensor_offset_y
         # traj = self.traj_generate.TrajGeneratorFromPFreeRot(keypoints, step=0.1)
         # return keypoints, traj, fear, img
+            
+        mpc_traj, _ = self.traj_planner.planning(keypoints)
+        # mpc_traj, _ = self.traj_planner.trajGenerate(keypoints)
         
-        keypts_cpu = keypoints.to(torch.device("cpu"))
-        mpc_traj, cost = self.traj_planner.trajGenerate(keypts_cpu)
-        traj_gpu = mpc_traj[..., :3].to(torch.device("cuda"))
+        # keypts_cpu = keypoints.to(torch.device("cpu"))
+        # mpc_traj, cost = self.traj_planner.trajGenerate(keypts_cpu)
+        # traj_gpu = mpc_traj[..., :3].to(torch.device("cuda"))
         
         # self.save_traj(keypts_cpu, mpc_traj, cost)
-        return keypoints, traj_gpu, fear, img
+        return keypoints, mpc_traj, fear, img

@@ -7,23 +7,35 @@
         "max-camera-depth": 10.0
     },
     "modelConfig": {
-        "model-save": "models/plannernet.pt",
+        "model-save": "models/new11_test.pt",
         "resume": false,
         "in-channel": 16,
         "knodes": 5,
         "goal-step": 5,
-        "max-episode-length": 25
+        "max-episode-length": 25,
+        "v-ref": 1.5,
+        "v-num": 5
+    },
+    "costConfig":{
+        "_comment": "a-pred obs, b-traj obs, g-traj height, d-goal, e-motion, z-mpc",
+        "alpha": 5.0,
+        "beta": 1.0,
+        "gamma": 1.0,
+        "delta": 1.0,
+        "epi": 20.0,
+        "zeta": 0.4,
+        "obs-threshold": 0.5
     },
     "trainingConfig": {
         "training": true,
-        "lr": 0.0001,
+        "lr": 0.0002,
         "factor": 0.1,
-        "min-lr": 0.00000001,
+        "min-lr": 0.000001,
         "patience": 4,
         "epochs": 100,
-        "batch-size": 128,
+        "batch-size": 512,
         "w-decay": 0.001,
-        "num-workers": 1,
+        "num-workers": 0,
         "gpu-id": 0
     },
     "logConfig": {
