@@ -13,13 +13,15 @@ goal_topic:             /way_point
 path_topic:             /path
 image_topic:            /iplanner_image
 preds_topic:            /preds
+curr_vel_topic:         /curr_vel
+plan_vel_topic:         /plan_vel
 camera_tilt:            0.0
 depth_max:              10.0
 # frame ids
 robot_id:               vehicle
 world_id:               map
 # fear reaction
-is_fear_act:            True
+is_fear_act:            False
 buffer_size:            3
 angular_thred:          0.5
 track_dist:             0.5

@@ -19,7 +19,7 @@ torch.set_default_dtype(torch.float32)
 class TrajCost:
     def __init__(self, gpu_id=0):
         self.tsdf_map = TSDF_Map(gpu_id)
-        self.planner = TrajPlanner(is_train=True)
+        self.planner = TrajPlanner(is_train=True, gpu_id=gpu_id)
         self.opt = TrajOpt()
         self.is_map = False
         return None
@@ -74,13 +74,11 @@ class TrajCost:
         fear_labels = (fear_labels > obstalce_thred).to(torch.float32)
         
         total_loss = alpha*oloss + beta*hloss + gamma*mloss + delta*gloss
+        # total_loss = alpha*oloss + beta*hloss + delta*gloss
         
         # print("\nthe obstacle cost is:", oloss)
         # print("the height cost is:", hloss)
         # print("the motion cost is:", mloss)
         # print("the goal cost is:", gloss)
         
-        # print("the mpc cost is:", cost_mpc)
-        # print("the total cost is:", total_loss)
-
         return total_loss, fear_labels

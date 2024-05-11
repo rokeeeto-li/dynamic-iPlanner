@@ -5,17 +5,88 @@ from dynamics import Bicycle, LinearDynamic
 
 torch.set_default_dtype(torch.float32)
 
+class TrajPlanner2():
+    def __init__(self, is_train=False, gpu_id=0, v_ref=1.5, dynamic=None):
+        self.v_ref = v_ref
+        self.dynamic = dynamic
+        self.is_train = is_train
+        if self.is_train:
+            self.device = torch.device("cuda:" + str(gpu_id))
+        else:
+            self.device = torch.device("cpu")
+
+    def set_dynamic(self, dynamic):
+        self.dynamic = dynamic
+
+    def ref_generate(self, waypoints, init_vel=None, spline_step = 0.1):
+        waypoints = torch.cat((torch.zeros(waypoints.shape[0], 1, 3, device=self.device), waypoints), dim=1)
+        splined = pp.chspline(waypoints, spline_step)
+        # def calculate_closest_distance(waypoints, splined):
+        #     batch_size, num_points, _ = waypoints.shape
+        #     _, num_splined, _ = splined.shape
+
+        #     waypoints = waypoints.unsqueeze(2).expand(batch_size, num_points, num_splined, 3)
+        #     splined = splined.unsqueeze(1).expand(batch_size, num_points, num_splined, 3)
+
+        #     distances = torch.norm(waypoints - splined, dim=-1)
+        #     closest_distances, _ = torch.min(distances, dim=-1)
+
+        #     return closest_distances
+        
+        # closest_distances = calculate_closest_distance(waypoints, splined)
+
+        direction_vectors = splined[...,1:,:] - splined[...,:-1,:]
+        magnitudes = torch.sqrt(torch.sum(direction_vectors**2, dim=-1, keepdim=True))
+        desired_v = direction_vectors / magnitudes * self.v_ref
+
+        if init_vel is None:
+            init_v = torch.zeros(desired_v.shape[0], 1, 3, device = self.device)
+        else:
+            init_v = init_vel.unsqueeze(0).to(self.device)
+
+        end_v = torch.zeros(desired_v.shape[0], 1, 3, device = self.device)
+        desired_v = torch.cat((init_v, desired_v[...,1:,:], end_v), dim=-2)
+
+        self.ref_traj = torch.cat((splined, desired_v), dim=-1)
+
+        self.batch, T, _ = self.ref_traj.shape
+        self.T = T-1
+        self.mpc_configs(self.batch, self.T)
+
+        total_length = torch.sum(magnitudes, dim=-2)
+        self.dynamic.dt = self.dt = total_length / self.v_ref / self.T
+    
+    def mpc_configs(self, n_batch, T):
+        n_state, n_ctrl = self.dynamic.state_dim, self.dynamic.ctrl_dim
+        Q = torch.tile(torch.eye(n_state + n_ctrl, device=self.device), (n_batch, T, 1, 1))
+        Q[..., n_state:, n_state:] *= 0.05
+        # Q[..., -1, :, :] *= 10
+        p = torch.tile(torch.zeros(n_state + n_ctrl, device=self.device), (n_batch, T, 1))
+
+        stepper = pp.utils.ReduceToBason(steps=1, verbose=False)
+        self.MPC = pp.module.MPC(self.dynamic, Q, p, T, stepper=stepper)
+        return
+    
+    def planning(self, waypoints, vel=None):
+        self.ref_generate(waypoints, init_vel=vel)
+        self.dynamic.set_reftrajectory(self.ref_traj)
+        x_init = self.ref_traj[...,0,:]
+        x_error, _, cost = self.MPC(self.dt, x_init)
+        x_traj = x_error + self.ref_traj
+        return x_traj, cost
+
 class TrajPlanner:
-    def __init__(self, is_train=False):
+    def __init__(self, is_train=False, gpu_id=0):
         self.T = 14
         self.dt = 0.1
         self.is_train = is_train
+        # self.device = torch.device("cuda")
         if self.is_train:
-            self.device = torch.device("cuda")
+            self.device = torch.device("cuda:" + str(gpu_id))
         else:
             self.device = torch.device("cpu")
-        self.mpc_config()
-        # self.linear_mpc_config()
+        # self.mpc_config()
+        self.linear_mpc_config()
     
     def getSE3(self, xyzrpy):
         xyz = xyzrpy[..., :3]
@@ -27,7 +98,7 @@ class TrajPlanner:
         self.dynamics = Bicycle(dt = self.dt)
 
         if self.is_train:
-            n_batch = 128
+            n_batch = 350
         else:
             n_batch = 1
         n_state, n_ctrl = 6, 2
@@ -42,7 +113,7 @@ class TrajPlanner:
         self.dynamics = LinearDynamic(dt = self.dt)
         
         if self.is_train:
-            n_batch = 128
+            n_batch = 350
         else:
             n_batch = 1
         n_state, n_ctrl = 3, 3
@@ -77,18 +148,18 @@ class TrajPlanner:
     
     def trajGenerate(self, waypoints):
         # Biycle model
-        waypoints = self.oriAppend(waypoints)
-        traj = pp.bspline(waypoints, interval=0.75, extrapolate=True)
-        self.dynamics.set_reftrajectory(traj)
+        # waypoints = self.oriAppend(waypoints)
+        # traj = pp.bspline(waypoints, interval=0.75, extrapolate=True)
+        # self.dynamics.set_reftrajectory(traj)
         
-        x_init = traj[...,0,:].Log()
+        # x_init = traj[...,0,:].Log()
         
         # Linear Model
-        # waypoints = self.oriAppend(waypoints)
-        # traj = pp.bspline(waypoints, interval=0.75, extrapolate=True).translation()
-        # self.dynamics.set_reftrajectory(traj)
+        waypoints = self.oriAppend(waypoints)
+        traj = pp.bspline(waypoints, interval=0.75, extrapolate=True).translation()
+        self.dynamics.set_reftrajectory(traj)
                 
-        # x_init = traj[...,0,:]
+        x_init = traj[...,0,:]
         _, u_mpc, cost = self.MPC(self.dt, x_init)
         
         x_traj = x_init.unsqueeze(-2).repeat((1, self.T+1, 1))
@@ -97,5 +168,5 @@ class TrajPlanner:
         for i in range(self.T):
             x_traj[...,i+1,:], _ = self.dynamics(x_traj[...,i,:].clone(), u_mpc[...,i,:])
                         
-        # return x_traj, cost
-        return x_traj.translation(), cost
+        return x_traj, cost
+        # return x_traj.translation(), cost

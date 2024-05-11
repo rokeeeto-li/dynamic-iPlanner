@@ -123,7 +123,7 @@ class PlannerNetTrainer:
                                      max_depth=self.args.max_camera_depth)
             
             total_img_data += len(train_data)
-            train_loader = MultiEpochsDataLoader(train_data, batch_size=self.args.batch_size, shuffle=True, num_workers=1, drop_last=True)
+            train_loader = MultiEpochsDataLoader(train_data, batch_size=self.args.batch_size, shuffle=True, num_workers=self.args.num_workers, drop_last=True)
             self.train_loader_list.append(train_loader)
 
             val_data = PlannerData(root=data_path,
@@ -135,7 +135,7 @@ class PlannerNetTrainer:
                                    max_episode=self.args.max_episode,
                                    max_depth=self.args.max_camera_depth)
 
-            val_loader = MultiEpochsDataLoader(val_data, batch_size=self.args.batch_size, shuffle=True, num_workers=1, drop_last=True)
+            val_loader = MultiEpochsDataLoader(val_data, batch_size=self.args.batch_size, shuffle=True, num_workers=self.args.num_workers, drop_last=True)
             self.val_loader_list.append(val_loader)
 
             # Load Map and Trajectory Class
@@ -160,7 +160,7 @@ class PlannerNetTrainer:
         traj, mpc_cost = traj_cost.planner.trajGenerate(preds)
         loss1, fear_labels = traj_cost.CostofTraj(traj, odom, goal, ahead_dist=self.args.fear_ahead_dist)
         loss2 = F.binary_cross_entropy(fear, fear_labels)
-        return loss1+loss2+mpc_cost.mean()*0.1, traj
+        return loss1+loss2+mpc_cost.mean(), traj
     
     def train_epoch(self, epoch):
         loss_sum = 0.0
