@@ -156,8 +156,6 @@ class iPlannerNode:
                 PointField('y', 4, PointField.FLOAT32, 1),
                 PointField('z', 8, PointField.FLOAT32, 1),
                 PointField('rgba', 12, PointField.UINT32, 1)]
-        # preds = self.traj_viz.TransformPoints(self.odom, self.preds.cpu()).squeeze(0)
-        # preds = preds.tensor()[..., 0:3].cpu().detach().numpy()
         preds = self.preds[..., 0:3].squeeze(0).cpu().detach().numpy()
         r,g,b,a = 255, 255, 0, 255
         rgb = struct.unpack('I', struct.pack('BBBB', b, g, r, a))[0]
@@ -396,7 +394,7 @@ if __name__ == '__main__':
 
     parser = ROSArgparse(relative=node_name)
     parser.add_argument('main_freq',         type=int,   default=5,                          help="Main frequency of the path planner.")
-    parser.add_argument('model_save',        type=str,   default='/models/plannernet.pt',    help="Path to the saved model.")
+    parser.add_argument('model_save',        type=str,   default='/models/plannernet_linear.pt',    help="Path to the saved model.")
     parser.add_argument('crop_size',         type=tuple, default=[360,640],                  help='Dimensions to crop the image to.')
     parser.add_argument('uint_type',         type=bool,  default=False,                      help="Flag to indicate if the image is in uint type.")
     parser.add_argument('depth_topic',       type=str,   default='/rgbd_camera/depth/image', help='ROS topic for depth image.')

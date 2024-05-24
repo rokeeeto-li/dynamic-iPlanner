@@ -45,6 +45,36 @@ class Bicycle(pp.module.NLS):
         rpy = xyzrpy[..., 3:]
         q = pp.euler2SO3(rpy).tensor()
         return pp.SE3(torch.cat([xyz, q], dim=-1))
+
+class NonLinearDynamic(pp.module.NLS):
+    def __init__(self, dt=None):
+        super().__init__()
+        self.dt = dt
+
+    def origin_state_transition(self, state, input, t=None):
+        return state + input*self.dt + torch.log(input)*self.dt
+    
+    def error_state_transition(self, error_state, input, t=None):
+        ref = self.ref_traj[...,t,:]
+        next_ref = self.ref_traj[...,t+1,:]
+
+        next_err = -next_ref + ref + error_state + input*self.dt + torch.log(input)*self.dt
+        return next_err
+
+    def state_transition(self, state, input, t):
+        if self.ref_traj is None:
+            return self.origin_state_transition(state, input, t)
+        else:
+            return self.error_state_transition(state, input, t)
+
+    def observation(self, state, input, t=None):
+        return state
+
+    def set_reftrajectory(self, ref_traj):
+        self.ref_traj = ref_traj
+
+    def recover_dynamics(self):
+        self.ref_traj = None
     
 class LinearDynamic(pp.module.NLS):
     def __init__(self, dt=None):

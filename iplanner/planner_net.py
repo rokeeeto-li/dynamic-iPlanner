@@ -16,7 +16,7 @@ class PlannerNet(nn.Module):
     def __init__(self, encoder_channel=64, k=10):
         super().__init__()
         self.encoder = PerceptNet(layers=[2, 2, 2, 2])
-        self.decoder = Decoder(512, encoder_channel, k)
+        self.decoder = Decoder(512, encoder_channel, k, k=k)
 
     def forward(self, x, goal, vel):
         x = self.encoder(x)
