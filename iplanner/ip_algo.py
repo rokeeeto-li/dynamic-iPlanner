@@ -89,6 +89,10 @@ class IPlannerAlgo:
         # return keypoints, traj, fear, img
             
         mpc_traj, _ = self.traj_planner.planning(keypoints)
+        mpc_vel = mpc_traj[..., 3:].to(torch.device("cuda"))
+        traj_gpu = mpc_traj[..., :3].to(torch.device("cuda"))
+
+        return keypoints, mpc_vel[:,0,...], traj_gpu, fear, img
         # mpc_traj, _ = self.traj_planner.trajGenerate(keypoints)
         
         # keypts_cpu = keypoints.to(torch.device("cpu"))

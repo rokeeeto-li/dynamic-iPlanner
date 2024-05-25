@@ -19,78 +19,8 @@ class TrajPlanner2():
         self.dynamic = dynamic
 
     def ref_generate(self, waypoints, init_vel=None, spline_step = 0.1):
-        waypoints = torch.cat((torch.zeros(waypoints.shape[0], 1, 3, device=self.device), waypoints), dim=1)
-        splined = pp.chspline(waypoints, spline_step)
-        # def calculate_closest_distance(waypoints, splined):
-        #     batch_size, num_points, _ = waypoints.shape
-        #     _, num_splined, _ = splined.shape
+        waypoints = waypoints.to(self.device)
 
-        #     waypoints = waypoints.unsqueeze(2).expand(batch_size, num_points, num_splined, 3)
-        #     splined = splined.unsqueeze(1).expand(batch_size, num_points, num_splined, 3)
-
-        #     distances = torch.norm(waypoints - splined, dim=-1)
-        #     closest_distances, _ = torch.min(distances, dim=-1)
-
-        #     return closest_distances
-        
-        # closest_distances = calculate_closest_distance(waypoints, splined)
-
-        direction_vectors = splined[...,1:,:] - splined[...,:-1,:]
-        magnitudes = torch.sqrt(torch.sum(direction_vectors**2, dim=-1, keepdim=True))
-        desired_v = direction_vectors / magnitudes * self.v_ref
-
-        if init_vel is None:
-            init_v = torch.zeros(desired_v.shape[0], 1, 3, device = self.device)
-            print("\n no init vel \n")
-        else:
-            init_v = init_vel.unsqueeze(1).to(self.device)
-
-        end_v = torch.zeros(desired_v.shape[0], 1, 3, device = self.device)
-        desired_v = torch.cat((init_v, desired_v[...,1:,:], end_v), dim=-2)
-
-        self.ref_traj = torch.cat((splined, desired_v), dim=-1)
-
-        self.batch, T, _ = self.ref_traj.shape
-        self.T = T-1
-        self.mpc_configs(self.batch, self.T)
-
-        total_length = torch.sum(magnitudes, dim=-2)
-        self.dynamic.dt = self.dt = total_length / self.v_ref / self.T
-    
-    def mpc_configs(self, n_batch, T):
-        n_state, n_ctrl = self.dynamic.state_dim, self.dynamic.ctrl_dim
-        Q = torch.tile(torch.eye(n_state + n_ctrl, device=self.device), (n_batch, T, 1, 1))
-        Q[..., n_state:, n_state:] *= 0.05
-        # Q[..., -1, :, :] *= 10
-        p = torch.tile(torch.zeros(n_state + n_ctrl, device=self.device), (n_batch, T, 1))
-
-        stepper = pp.utils.ReduceToBason(steps=1, verbose=False)
-        self.MPC = pp.module.MPC(self.dynamic, Q, p, T, stepper=stepper)
-        return
-    
-    def planning(self, waypoints, vel=None):
-        self.ref_generate(waypoints, init_vel=vel)
-        self.dynamic.set_reftrajectory(self.ref_traj)
-        x_init = self.ref_traj[...,0,:]
-        x_error, _, cost = self.MPC(self.dt, x_init)
-        x_traj = x_error + self.ref_traj
-        return x_traj, cost
-
-class TrajPlanner:
-    def __init__(self, is_train=False, gpu_id=0):
-        self.T = 14
-        self.dt = 0.1
-        self.is_train = is_train
-        # self.device = torch.device("cuda")
-        if self.is_train:
-            self.device = torch.device("cuda:" + str(gpu_id))
-        else:
-            self.device = torch.device("cpu")
-
-    def set_dynamic(self, dynamic):
-        self.dynamic = dynamic
-
-    def ref_generate(self, waypoints, init_vel=None, spline_step = 0.1):
         waypoints = torch.cat((torch.zeros(waypoints.shape[0], 1, 3, device=self.device), waypoints), dim=1)
         splined = pp.chspline(waypoints, spline_step)
         # def calculate_closest_distance(waypoints, splined):
