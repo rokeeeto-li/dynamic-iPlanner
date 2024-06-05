@@ -209,7 +209,7 @@ class PlannerNetTrainer:
                 preds, fear = self.net(image, goal, vel)
                 # print("fear is", torch.sum(fear))
 
-                loss, _, ploss, oloss, hloss, gloss, mloss, fearloss, mpc_cost = traj_cost.CalCost(preds, odom, goal, self.args.fear_ahead_dist, fear)
+                loss, _, ploss, oloss, hloss, gloss, mloss, fearloss, mpc_cost = traj_cost.CalCost(preds, odom, goal, self.args.fear_ahead_dist, fear, vel=vel)
                 # loss, _ = self.MapObsLoss(preds, fear, traj_cost, odom, goal)
                 loss.backward()
                 self.optimizer.step()

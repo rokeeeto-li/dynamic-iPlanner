@@ -150,9 +150,9 @@ class MulLayerCost:
             hloss_M = torch.abs(traj[:, :, 2] - hloss_M)
             hloss = torch.mean(torch.sum(hloss_M, axis=1))
 
-        # mtxR = self.planner.MPC.Q[..., n_state:, n_state:]
-        # motion_cost = pp.bvmv(motion, mtxR, motion).sum(dim=-1)
-        motion_cost = torch.mean(torch.norm(motion, dim=-1))
+        mtxR = self.planner.MPC.Q[..., n_state:, n_state:]
+        motion_cost = pp.bvmv(motion, mtxR, motion).sum(dim=-1)
+        # motion_cost = torch.mean(torch.norm(motion, dim=-1))
         mpcloss = torch.mean(motion_cost)
 
         # Motion Loss
